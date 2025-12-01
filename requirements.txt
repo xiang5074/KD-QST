@@ -1,0 +1,9 @@
+magma==2.9.0
+matplotlib==3.10.6
+qiskit==2.1.2
+qiskit_aer==0.17.1
+pylatexenc==2.10
+pynvml==13.0.1
+numpy==2.3.2
+torch==2.5.0
+scipy==1.16.1
