@@ -79,3 +79,6 @@ conda install -c pytorch magma
 If you use this codebase, please cite:
 - Efficient quantum state tomography with two complementary measurements.
 - Direct Quantum State Tomography Based on Kirkwood-Dirac Quasiprobability.
+
+## License
+This code is distributed under an Mozilla Public License Version 2.0.
