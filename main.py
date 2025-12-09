@@ -251,8 +251,8 @@ def exp_2(args):
                         #save_data[f'time{idx+1}'].append(t)                                                                                        
                 
                 
-            print(f'N={args.N}, shots={args.shots}, rank={args.rank}', save_data,'\n')     
-            save_file(save_data, [args.shots, args.state_flag], [args.N])   
+            print(f'N={args.N}, shots={args.shots}', save_data,'\n')     
+            #save_file(save_data, [args.shots, args.state_flag], [args.N])   
 
 
 
@@ -377,7 +377,7 @@ def exp_4(args):
                     traceback.print_exc()
                     raise RuntimeError(f'Error encountered with rank={args.rank}')
 
-        # Plot fidelity values
+        # save fidelity data
         fq_data = {}
         if len(save_data['fq3']) > 0:
             fq3_stack = np.stack(save_data['fq3'], axis=0)
@@ -467,7 +467,6 @@ if __name__ == '__main__':
     parser.add_argument("--state_flag", type=str, default="random_Rank", choices=["GHZ", "Product", "W","Werner", "random_Purity", "random_Rank"], help="name of state in library")
     parser.add_argument("--mea_flag", type=str, default="kd", choices=["kd", "Pauli_povm", "Pauli_normal", "Tetra4"], help="name of measurement basis")    
     parser.add_argument("--exp_flag", type=int, default=0, help="0: get quasiprobabilities from calculation, 1: simulation")    
-    parser.add_argument("--parallel_flag", type=int, default=0, choices=[0,1], help="0:prepare and measure scheme, 1:parallel scheme")
     parser.add_argument("--error_flag", type=str, default='gatenoise', choices=['gatenoise', 'readouterror'], help="type of noise in Qiskit simulation")
     parser.add_argument("--decom_flag", type=int, default=1, help="0: donot decompose 3-qubit cswap gates, 1: decompose")
     parser.add_argument("--rankflag", type=int, default=0, help="0: full rank initialization, 1: known rank initialization")
@@ -494,5 +493,5 @@ if __name__ == '__main__':
 
     args.device = device
 
-    exp_1(args)
+    exp_4(args)
 

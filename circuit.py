@@ -38,7 +38,7 @@ class Circuit_meas():
     experimental data for fidelity estimation.
     """
 
-    def __init__(self, state=None, N=1, p=1, shots=4096, probas=0, noise_strength=0, parallel_flag=1, error_flag='gatenoise', decom_flag=1, backend="aer", circtype='Random'):
+    def __init__(self, state=None, N=1, p=1, shots=4096, probas=0, noise_strength=0, error_flag='gatenoise', decom_flag=1, backend="aer", circtype='Random'):
         """
         Args:
             circtype (str): Type of state of the experiment, choices =
@@ -53,7 +53,6 @@ class Circuit_meas():
         assert backend in ('aer', 'qasm', 'MPS', 'stabilizer', 'IBMQ'), print(
             'please input right backend')
 
-        self.parallel_flag = parallel_flag   # 0: prepare and measure, 1: parallel measure
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')  #'cpu' 
         self.state = state #/ torch.norm(state)
         self.rho = state.matmul(state.T.conj())
@@ -61,7 +60,7 @@ class Circuit_meas():
         self.n_qubits = 2*N + 1 # the number of qubits used in circuit
         self.p = torch.tensor(p, device=self.device)              # Werner state weight
         self.probas = probas
-        self.shots = int(shots/2**self.N) if self.parallel_flag == 0 else int(shots/2)  # number of shots      
+        self.shots = int(shots/2**self.N)  # number of shots      
         self.noise_strength = noise_strength
         self.circtype = circtype  # the type of state        
         self.decom_flag = decom_flag
@@ -338,10 +337,7 @@ class Circuit_meas():
         mea_qc = self.get_mea_circuit_basis(meas_element)
         self.qc.barrier()
         self.qc.compose(mea_qc, range(self.n_qubits), inplace=True)
-        if self.parallel_flag == 0:
-            self.qc.measure(list(range(self.N,self.n_qubits)),list(range(self.N,self.n_qubits)))
-        elif self.parallel_flag == 1:
-            self.qc.measure(list(range(0,self.n_qubits)),list(range(0,self.n_qubits)))
+        self.qc.measure(list(range(self.N,self.n_qubits)),list(range(self.N,self.n_qubits)))
 
     
 
@@ -355,13 +351,9 @@ class Circuit_meas():
         counts = result.get_counts()
         #print('counts1', counts.items())
 
-        if self.parallel_flag == 0:
-            counts = {key[:(self.N+1)][::-1]: value for key, value in counts.items()}  #if key[-1:self.N:-1] == '0'*self.N}  
+        counts = {key[:(self.N+1)][::-1]: value for key, value in counts.items()}  #if key[-1:self.N:-1] == '0'*self.N}  
                 # Keep only measured qubits and reverse into natural order
-        elif self.parallel_flag == 1:
-            counts = {key[::-1]: value for key, value in counts.items()}  
-            #print('counts2', counts)
-        
+                
         f = {key: value/int(self.shots) for key, value in counts.items()}  
         #print('f:', f)
         self.f = f
@@ -371,8 +363,8 @@ class Circuit_meas():
     # ----------------get qij----------------
     def data_process(self):
         f_obs = {}
-        for i in range(2**(self.N) if self.parallel_flag == 0 else 2**(2*self.N)):
-            i2 = ten_to_k(i, 2, self.N if self.parallel_flag == 0 else 2*self.N)
+        for i in range(2**(self.N)):
+            i2 = ten_to_k(i, 2, self.N)
             key = "".join([str(j) for j in i2])
             f_add = self.f[key+'0'] if key+'0' in self.f.keys() else 0
             f_sub = self.f[key+'1'] if key+'1' in self.f.keys() else 0
@@ -387,7 +379,7 @@ class Circuit_meas():
     def simulation(self):
         eigen = ['+','-']
 
-        k = 2**self.N if self.parallel_flag == 0 else 1
+        k = 2**self.N 
         
         qij = torch.zeros((2**self.N, 2**self.N), dtype=torch.complex128, device=self.device)
         for j in range(k):    # Swap-system eigenstate determined by j
@@ -420,19 +412,14 @@ class Circuit_meas():
 
 
             qij_list = torch.tensor([q[1][key] - 1j * q[2][key] for key in sorted(q[1].keys())], dtype=torch.complex128)
-            if self.parallel_flag == 0:
-                qij[:,j] = qij_list
-            elif self.parallel_flag == 1:
-                qij = qij_list.reshape(2**self.N, -1).T 
+            qij[:,j] = qij_list
 
-        #print('qij sum:', torch.sum(qij))
-        if self.parallel_flag == 0:
-            # Normalize so Re(qij) sums to 1 and Im(qij) sums to 0
-            qij_re = qij.real
-            qij_re /= torch.sum(qij_re)  
-            qij_im = qij.imag
-            qij_im = qij_im - torch.sum(qij_im) / qij_im.numel()
-            qij = qij_re + 1j * qij_im    
+        # Normalize so Re(qij) sums to 1 and Im(qij) sums to 0
+        qij_re = qij.real
+        qij_re /= torch.sum(qij_re)  
+        qij_im = qij.imag
+        qij_im = qij_im - torch.sum(qij_im) / qij_im.numel()
+        qij = qij_re + 1j * qij_im    
 
         #final_qij = self.p * qij.reshape(-1,1) + (1 - self.p) * self.probas   # Uncomment to include Werner mixed state
         final_qij = qij.reshape(-1,1)   # Pure-state scenario only
@@ -453,11 +440,11 @@ if __name__ == '__main__':
     rho_np, _ = State().Get_state_rho(N, state_flag, p)
     rho = torch.tensor(rho_np, dtype=torch.complex128, device='cpu')
 
-    circ_sim = Circuit_meas(state=rho, N=N, shots=shots, parallel_flag=0, decom_flag=0, backend='aer')
+    circ_sim = Circuit_meas(state=rho, N=N, shots=shots, decom_flag=0, backend='aer')
     qij = circ_sim.simulation()
     print('qij:',qij)
 
-    circ_sim = Circuit_meas(state=rho, N=N, shots=shots, parallel_flag=1, decom_flag=0, backend='aer')
+    circ_sim = Circuit_meas(state=rho, N=N, shots=shots, decom_flag=0, backend='aer')
     qij = circ_sim.simulation()
     print('qij1:',qij)
     #print('sum qij:', torch.sum(qij))

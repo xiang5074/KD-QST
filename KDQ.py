@@ -43,7 +43,6 @@ class KDQ:
         self.sample_size = args.sample_size
         self.shots = args.shots
         self.n_epochs = args.n_epochs if args.rankflag==0 else 2000
-        self.parallel_flag = args.parallel_flag
         self.exp_flag = args.exp_flag 
         self.state_flag = args.state_flag
         self.mea_flag = args.mea_flag
@@ -68,13 +67,9 @@ class KDQ:
         self.rho = self.rho.to(device=self.device, dtype=self.data_type)
         
         # KD operator basis of single qubit
-        if self.parallel_flag == 0:
-            self.mea1_eig = torch.tensor([[1, 0], [0, 1]], dtype=self.data_type, device=self.device)
-            self.mea2_eig = torch.tensor([[1, 1], [1, -1]], dtype=self.data_type, device=self.device) / torch.sqrt(torch.tensor(2.0))
-            #self.mea2_eig = torch.tensor([[1, torch.sqrt(torch.tensor(3))], [torch.sqrt(torch.tensor(3)), -1]], dtype=self.data_type, device=self.device) / torch.tensor(2)
-        elif self.parallel_flag == 1:
-            self.mea1_eig = torch.tensor([[1, 0], [0, 1]], dtype=self.data_type, device=self.device)
-            self.mea2_eig = torch.tensor([[1, 0], [0, 1]], dtype=self.data_type, device=self.device)
+        self.mea1_eig = torch.tensor([[1, 0], [0, 1]], dtype=self.data_type, device=self.device)
+        self.mea2_eig = torch.tensor([[1, 1], [1, -1]], dtype=self.data_type, device=self.device) / torch.sqrt(torch.tensor(2.0))
+        #self.mea2_eig = torch.tensor([[1, torch.sqrt(torch.tensor(3))], [torch.sqrt(torch.tensor(3)), -1]], dtype=self.data_type, device=self.device) / torch.tensor(2)
 
 
     def cir_pef(self):  # determine q_ij under different experimental conditions
@@ -95,7 +90,7 @@ class KDQ:
             rho_eye = torch.eye(2**self.N, dtype=self.data_type, device=self.device) / 2**self.N
             probas = qmt_torch(rho_eye, [M]*self.N)
             
-            circ_sim = Circuit_meas(state=self.state, N=self.N, p=self.p, probas=probas, parallel_flag=self.parallel_flag, error_flag=self.error_flag, decom_flag=self.decom_flag, noise_strength = self.noise_strength, shots=self.shots, backend='aer')
+            circ_sim = Circuit_meas(state=self.state, N=self.N, p=self.p, probas=probas, error_flag=self.error_flag, decom_flag=self.decom_flag, noise_strength = self.noise_strength, shots=self.shots, backend='aer')
             q_ij = circ_sim.simulation() #.reshape(-1,1)
 
             # Reorder qij to match the layout produced by qmt_torch
@@ -174,10 +169,7 @@ class KDQ:
                 q_ij = shuffle_sample(p_all)   # Reorder samples to align with qmt_torch output
                 
         
-        if self.parallel_flag == 0:     # normalization of q_ij if not parallel measurement
-            self.qij = q_ij / torch.sum(q_ij) 
-        elif self.parallel_flag == 1:   # parallel case, donnot satisfy normalization
-            self.qij = q_ij
+        self.qij = q_ij / torch.sum(q_ij) 
         #print(self.qij)
 
 
@@ -205,7 +197,7 @@ class KDQ:
                     psi_2 = self.mea2_eig[j, :].reshape(-1, 1)
                     mea2 = psi_2 @ psi_2.conj().T
                     add_state = torch.ones((2,2), dtype=self.data_type, device=self.device) / 2
-                    m = mea1 @ mea2 if self.parallel_flag==0 else mea1 @ add_state @ mea2      # parallel measurement or not
+                    m = mea1 @ mea2 
                     M[i * len(self.mea2_eig) + j] = m                        # unnormalized trace
                     MPDE[i * len(self.mea2_eig) + j] = m / torch.trace(m)    # trace normalized
         elif self.mea_flag == 'Pauli_POVM':   # Z,Y,X
@@ -249,18 +241,10 @@ class KDQ:
 
     # ---------------------------------do tomography methods------------------------------------------------
 
-    def QST_LIE(self):     # Two-step direct reconstruction method           
-        if self.parallel_flag == 0:
-            start_time = time.time()
-            _, M_PDE = self.cal_M()
-            rho = qmt_matrix_torch(self.qij.reshape(1,-1).conj(), [M_PDE]*self.N)   # reshape keeps the flattened element order
-        elif self.parallel_flag == 1:
-            # adjoint shuffle to get rho from qij
-            Ds = torch.tensor([2]*self.N, dtype=torch.int)   
-            qij = shuffle_adjoint_torch(self.qij, Ds)
-            start_time = time.time()
-            rho = torch.sqrt(torch.tensor(2))**(2*self.N) * qij.T
-            print('trace rho before proj:', torch.trace(rho))          
+    def QST_LIE(self):     # Two-step direct reconstruction method         
+        start_time = time.time()
+        _, M_PDE = self.cal_M()
+        rho = qmt_matrix_torch(self.qij.reshape(1,-1).conj(), [M_PDE]*self.N)   # reshape keeps the flattened element order
 
         if self.N >= N_moniter:
             if self.N>=15:
@@ -314,7 +298,7 @@ class KDQ:
             monitor_memory()
 
         # Setting learning rate
-        gam = 2 * 7.9**self.N if self.parallel_flag == 0 else 3.5 * 13**self.N   # MUB basis; for parallel case, step size needs further tuning
+        gam = 2 * 7.9**self.N                                                          # MUB basis
         #gam = 3 * 5.5**self.N  #2.5 * 5.8**self.N if self.N<=5 else 3 * 5.5**self.N   # non-MUB basis
         gam = torch.tensor(gam, device=self.device)
 
@@ -372,7 +356,7 @@ class KDQ:
             del data, probas
             monitor_memory()
 
-        print('MLE k:', k)
+        #print('MLE k:', k)
         if self.his_flag == 0:
             return rho, time_all
         else:
@@ -383,8 +367,7 @@ class KDQ:
         #rho = rho.to(dtype=torch.complex128)
         #M = M.to(dtype=torch.complex128)
         probas = qmt_torch(rho, [M]*self.N)
-        if self.parallel_flag == 0:
-            probas = probas / torch.sum(probas)  # q_ij normalization
+        probas = probas / torch.sum(probas)  # q_ij normalization
         probas = probas.to(dtype=torch.complex128)    # mixed precision calculation
                 
         if self.mea_flag == 'kd' or self.mea_flag == 'Pauli_normal':
